@@ -1,3 +1,4 @@
+import time
 import times
 import uuid
 
@@ -58,6 +59,7 @@ class Queue(object):
         self._key = '%s%s' % (prefix, name)
         self._default_timeout = default_timeout
         self._async = async
+        self.wip_queue = WIPQueue(name, default_timeout, self.connection)
 
     @property
     def key(self):
@@ -392,3 +394,56 @@ class FailedQueue(Queue):
         job.exc_info = None
         q = Queue(job.origin, connection=self.connection)
         q.enqueue_job(job)
+
+
+class WIPQueue(object):
+    """This queue will handle "work in process" jobs
+
+    :param name: Name of the WIP queue (the same as the associated jobs queue)
+    :type name: :class:`str`
+    :param default_timeout: timeout of the associated job
+    :param default_timeout: :class:`float`
+    :param connection: Redis connection to be used
+    :type connection: :class:`redis.StrictRedis`
+    """
+    redis_queue_namespace_prefix = 'rq:wipqueue:{0}'
+
+    def __init__(self, name, default_timeout, connection=None):
+        self.name, self.default_timeout = name, default_timeout
+        self.connection = resolve_connection(connection)
+        return
+
+    @property
+    def key(self):
+        """Redis key for this queue (ZSET)
+        """
+        return self.redis_queue_namespace_prefix.format(self.name)
+
+    def add_job(self, job):
+        """Adding a job in positional slot (latest timeout first)
+        """
+        timeout = job.timeout
+        if timeout is None:
+            timeout = self.default_timeout
+        rank = time.time() + timeout
+        self.connection.zadd(self.key, rank, job.id)
+        return
+
+    def remove_job(self, job):
+        """Removes a job from the WIP queue
+
+        :param job: a :class:`rq.job.Job` object or a job id
+        :return: The count of removed jobs, thus 0 or 1.
+        """
+        if isinstance(job, Job):
+            job = job.id
+        return self.connection.zrem(self.key, job)
+
+    def remove_expired_jobs(self):
+        """Removes the oldest expired in the queue
+        """
+        to_remove = self.connection.zrangebyscore(self.key, '-inf', time.time())
+        if len(to_remove) > 0:
+            self.connection.zrem(self.key, *to_remove)
+        return
+
