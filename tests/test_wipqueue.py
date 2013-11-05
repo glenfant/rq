@@ -9,9 +9,11 @@ from rq.job import Job
 from rq.queue import WIPQueue
 from tests.fixtures import Number, div_by_zero, say_hello, do_nothing
 
+
 @contextlib.contextmanager
 def mock_time(timestamp):
-    """A simple context manager for mocking time.time() useful for traveling immediately in the future
+    """A simple context manager for mocking time.time() useful for traveling
+    immediately in the future or in the past in unit tests.
 
       >>> t0 = time.time()
       >>> with mock_time(t0 + 5.0):
