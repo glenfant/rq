@@ -409,7 +409,8 @@ class WIPQueue(object):
     redis_queue_namespace_prefix = 'rq:wipqueue:{0}'
 
     def __init__(self, name, default_timeout, connection=None):
-        self.name, self.default_timeout = name, default_timeout
+        self.name = name
+        self.default_timeout = default_timeout or Queue.DEFAULT_TIMEOUT
         self.connection = resolve_connection(connection)
         return
 
