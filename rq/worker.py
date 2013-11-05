@@ -323,7 +323,9 @@ class Worker(object):
                               blue(job.description), job.id))
 
                 self.connection.expire(self.key, (job.timeout or Queue.DEFAULT_TIMEOUT) + 60)
+                queue.wip_queue.add_job(job)
                 self.fork_and_perform_job(job)
+                queue.wip_queue.remove_job(job)
                 self.connection.expire(self.key, self.default_worker_ttl)
                 if job.status == Status.FINISHED:
                     queue.enqueue_dependents(job)
