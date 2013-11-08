@@ -32,6 +32,7 @@ DEFAULT_WORKER_TTL = 420
 DEFAULT_RESULT_TTL = 500
 logger = logging.getLogger(__name__)
 
+HAVE_WINDOWS = sys.platform.startswith('win')
 
 class StopRequested(Exception):
     pass
@@ -365,25 +366,33 @@ class Worker(object):
         within the given timeout bounds, or will end the work horse with
         SIGALRM.
         """
-        child_pid = os.fork()
-        if child_pid == 0:
-            self.main_work_horse(job)
+        # Experimental support for win32
+        if HAVE_WINDOWS:
+            try:
+                ret_code = self.main_work_horse(job)
+                if ret_code:
+                    # FIXME: should log something here...
+                    dummy = 0  # No syntax error
         else:
-            self._horse_pid = child_pid
-            self.procline('Forked %d at %d' % (child_pid, time.time()))
-            while True:
-                try:
-                    os.waitpid(child_pid, 0)
-                    break
-                except OSError as e:
-                    # In case we encountered an OSError due to EINTR (which is
-                    # caused by a SIGINT or SIGTERM signal during
-                    # os.waitpid()), we simply ignore it and enter the next
-                    # iteration of the loop, waiting for the child to end.  In
-                    # any other case, this is some other unexpected OS error,
-                    # which we don't want to catch, so we re-raise those ones.
-                    if e.errno != errno.EINTR:
-                        raise
+            child_pid = os.fork()
+            if child_pid == 0:
+                self.main_work_horse(job)
+            else:
+                self._horse_pid = child_pid
+                self.procline('Forked %d at %d' % (child_pid, time.time()))
+                while True:
+                    try:
+                        os.waitpid(child_pid, 0)
+                        break
+                    except OSError as e:
+                        # In case we encountered an OSError due to EINTR (which is
+                        # caused by a SIGINT or SIGTERM signal during
+                        # os.waitpid()), we simply ignore it and enter the next
+                        # iteration of the loop, waiting for the child to end.  In
+                        # any other case, this is some other unexpected OS error,
+                        # which we don't want to catch, so we re-raise those ones.
+                        if e.errno != errno.EINTR:
+                            raise
 
     def main_work_horse(self, job):
         """This is the entry point of the newly spawned work horse."""
@@ -404,9 +413,12 @@ class Worker(object):
 
         success = self.perform_job(job)
 
-        # os._exit() is the way to exit from childs after a fork(), in
-        # constrast to the regular sys.exit()
-        os._exit(int(not success))
+        if HAVE_WINDOWS:
+            return int(not success)
+        else:
+            # os._exit() is the way to exit from childs after a fork(), in
+            # constrast to the regular sys.exit()
+            os._exit(int(not success))
 
     def perform_job(self, job):
         """Performs the actual work of a job.  Will/should only be called
@@ -417,8 +429,12 @@ class Worker(object):
             job.origin, time.time()))
 
         try:
-            with death_penalty_after(job.timeout or Queue.DEFAULT_TIMEOUT):
+            if HAVE_WINDOWS:
+                # death_penalty_after uses SIGALRM that is not available unde Windows
                 rv = job.perform()
+            else:
+                with death_penalty_after(job.timeout or Queue.DEFAULT_TIMEOUT):
+                    rv = job.perform()
 
             # Pickle the result in the same try-except block since we need to
             # use the same exc handling when pickling fails
