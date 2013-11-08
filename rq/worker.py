@@ -1,6 +1,7 @@
 import sys
 import os
 import errno
+import multiprocessing
 import random
 import time
 import times
@@ -348,6 +349,17 @@ class Worker(object):
             self.connection.expire(self.key, self.default_worker_ttl)
 
     def fork_and_perform_job(self, job):
+        """Spawns a work horse to perform the actual work and passes it a job.
+        The worker will wait for the work horse and make sure it executes
+        within the given timeout bounds, or will end the work horse with
+        SIGALRM.
+        """
+        horse = multiprocessing.Process(target=self.main_work_horse, args=(job,))
+        horse.start()
+        horse.join()
+
+
+    def _fork_and_perform_job(self, job):
         """Spawns a work horse to perform the actual work and passes it a job.
         The worker will wait for the work horse and make sure it executes
         within the given timeout bounds, or will end the work horse with
