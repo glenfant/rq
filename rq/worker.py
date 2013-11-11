@@ -373,6 +373,8 @@ class Worker(object):
                 if ret_code:
                     # FIXME: should log something here...
                     dummy = 0  # No syntax error
+            except:
+                raise  # Log ?
         else:
             child_pid = os.fork()
             if child_pid == 0:
