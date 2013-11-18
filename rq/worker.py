@@ -57,10 +57,7 @@ def signal_name(signum):
         return 'SIG_UNKNOWN'
 
 
-class Worker(object):
-    redis_worker_namespace_prefix = 'rq:worker:'
-    redis_workers_keys = 'rq:workers'
-
+class BaseWorker(object):
     @classmethod
     def all(cls, connection=None):
         """Returns an iterable of all Workers.
@@ -124,7 +121,6 @@ class Worker(object):
         if exc_handler is not None:
             self.push_exc_handler(exc_handler)
 
-
     def validate_queues(self):  # noqa
         """Sanity check for the given queues."""
         if not iterable(self.queues):
@@ -140,7 +136,6 @@ class Worker(object):
     def queue_keys(self):
         """Returns the Redis keys representing this worker's queues."""
         return map(lambda q: q.key, self.queues)
-
 
     @property  # noqa
     def name(self):
@@ -166,25 +161,12 @@ class Worker(object):
         """The current process ID."""
         return os.getpid()
 
-    @property
-    def horse_pid(self):
-        """The horse's process ID.  Only available in the worker.  Will return
-        0 in the horse part of the fork.
-        """
-        return self._horse_pid
-
-    @property
-    def is_horse(self):
-        """Returns whether or not this is the worker or the work horse."""
-        return self._is_horse
-
     def procline(self, message):
         """Changes the current procname for the process.
 
         This can be used to make `ps -ef` output more readable.
         """
         setprocname('rq: %s' % (message,))
-
 
     def register_birth(self):  # noqa
         """Registers its own birth."""
@@ -274,6 +256,48 @@ class Worker(object):
         signal.signal(signal.SIGINT, request_stop)
         signal.signal(signal.SIGTERM, request_stop)
 
+    def handle_exception(self, job, *exc_info):
+        """Walks the exception handler stack to delegate exception handling."""
+        exc_string = ''.join(traceback.format_exception_only(*exc_info[:2]) +
+                             traceback.format_exception(*exc_info))
+        self.log.error(exc_string)
+
+        for handler in reversed(self._exc_handlers):
+            self.log.debug('Invoking exception handler %s' % (handler,))
+            fallthrough = handler(job, *exc_info)
+
+            # Only handlers with explicit return values should disable further
+            # exc handling, so interpret a None return value as True.
+            if fallthrough is None:
+                fallthrough = True
+
+            if not fallthrough:
+                break
+
+    def push_exc_handler(self, handler_func):
+        """Pushes an exception handler onto the exc handler stack."""
+        self._exc_handlers.append(handler_func)
+
+    def pop_exc_handler(self):
+        """Pops the latest exception handler off of the exc handler stack."""
+        return self._exc_handlers.pop()
+
+
+class Worker(BaseWorker):
+    redis_worker_namespace_prefix = 'rq:worker:'
+    redis_workers_keys = 'rq:workers'
+
+    @property
+    def horse_pid(self):
+        """The horse's process ID.  Only available in the worker.  Will return
+        0 in the horse part of the fork.
+        """
+        return self._horse_pid
+
+    @property
+    def is_horse(self):
+        """Returns whether or not this is the worker or the work horse."""
+        return self._is_horse
 
     def work(self, burst=False):  # noqa
         """Starts the work loop.
@@ -441,34 +465,16 @@ class Worker(object):
 
         return True
 
-    def handle_exception(self, job, *exc_info):
-        """Walks the exception handler stack to delegate exception handling."""
-        exc_string = ''.join(traceback.format_exception_only(*exc_info[:2]) +
-                             traceback.format_exception(*exc_info))
-        self.log.error(exc_string)
-
-        for handler in reversed(self._exc_handlers):
-            self.log.debug('Invoking exception handler %s' % (handler,))
-            fallthrough = handler(job, *exc_info)
-
-            # Only handlers with explicit return values should disable further
-            # exc handling, so interpret a None return value as True.
-            if fallthrough is None:
-                fallthrough = True
-
-            if not fallthrough:
-                break
-
     def move_to_failed_queue(self, job, *exc_info):
         """Default exception handler: move the job to the failed queue."""
         exc_string = ''.join(traceback.format_exception(*exc_info))
         self.log.warning('Moving job to %s queue.' % self.failed_queue.name)
         self.failed_queue.quarantine(job, exc_info=exc_string)
 
-    def push_exc_handler(self, handler_func):
-        """Pushes an exception handler onto the exc handler stack."""
-        self._exc_handlers.append(handler_func)
-
-    def pop_exc_handler(self):
-        """Pops the latest exception handler off of the exc handler stack."""
-        return self._exc_handlers.pop()
+class BaseWChild(object):
+    """
+     implement a base child worker, i.e. a child spawned by anymeans he choose by a worker of some type (Multiprocessing, threading, greenlets ...) do
+     do the real work.
+     The worker manage a pool of such children (with a default pool size of 1 for historical reasons)
+     Those children fetch work, do it, and if no more work, get iddle.
+    """
