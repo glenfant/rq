@@ -360,16 +360,12 @@ class Worker(BaseWorker):
                 self.register_death()
         return did_perform_work
 
-    def dequeue_job_and_maintain_ttl(self, timeout):
-        while True:
-            try:
-                return Queue.dequeue_any(self.queues, timeout,
-                                         connection=self.connection)
-            except DequeueTimeout:
-                pass
-
-            self.log.debug('Sending heartbeat to prevent worker timeout.')
-            self.connection.expire(self.key, self.default_worker_ttl)
+    def maintain_ttl(self):
+        """
+         @TODO only maintain TTL (no more dequeue_job) since the dequeue job will be done in the worker
+        """
+        self.log.debug('Sending heartbeat to prevent worker timeout.')
+        self.connection.expire(self.key, self.default_worker_ttl)
 
     def fork_and_perform_job(self, job):
         """Spawns a work horse to perform the actual work and passes it a job.
@@ -471,10 +467,29 @@ class Worker(BaseWorker):
         self.log.warning('Moving job to %s queue.' % self.failed_queue.name)
         self.failed_queue.quarantine(job, exc_info=exc_string)
 
+
 class BaseWChild(object):
     """
-     implement a base child worker, i.e. a child spawned by anymeans he choose by a worker of some type (Multiprocessing, threading, greenlets ...) do
+     A base child worker, i.e. a child spawned by worker of some kind (Multiprocessing, threading, greenlets ...) to
      do the real work.
      The worker manage a pool of such children (with a default pool size of 1 for historical reasons)
      Those children fetch work, do it, and if no more work, get iddle.
     """
+
+    def __init__(self, queues):
+
+        self.queues = queues
+
+    def fetch_job(self, timeout):
+        """
+         Block on the queues contained in the list "self.queues" till a job is available in one of them (while respecting the
+        list order).
+        @TODO : also watch the "in process" queue for those queues to retry if needed a timeouted or stalles job
+        @returns: an unpicked job
+        """
+        while True:
+            try:
+                return Queue.dequeue_any(self.queues, timeout,
+                                         connection=self.connection)
+            except DequeueTimeout:
+                pass

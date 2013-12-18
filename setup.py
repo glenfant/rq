@@ -11,7 +11,7 @@ def get_version():
     basedir = os.path.dirname(__file__)
     with open(os.path.join(basedir, 'rq/version.py')) as f:
         locals = {}
-        exec(f.read(), locals)
+        exec (f.read(), locals)
         return locals['VERSION']
     raise RuntimeError('No version info found.')
 
@@ -25,6 +25,7 @@ def get_dependencies():
             (sys.version_info >= (3, 0) and sys.version_info < (3, 2)):
         deps += ['argparse']
     return deps
+
 
 setup(
     name='rq',

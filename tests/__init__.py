@@ -1,3 +1,5 @@
+import pydevd
+pydevd.settrace('localhost', port=32000, stdoutToServer=False, stderrToServer=True)
 import logging
 import os
 from rq.compat import is_python_version
