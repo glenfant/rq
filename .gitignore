@@ -5,3 +5,5 @@
 /.env
 /.tox
 /dist
+.idea/
+.DS_Store
