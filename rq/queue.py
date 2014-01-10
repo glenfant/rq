@@ -52,14 +52,18 @@ class Queue(object):
         return cls(name, connection=connection)
 
     def __init__(self, name='default', default_timeout=None, connection=None,
-                 async=True):
+                 async=True, keep_done=False):
         self.connection = resolve_connection(connection)
         prefix = self.redis_queue_namespace_prefix
         self.name = name
         self._key = '%s%s' % (prefix, name)
         self._default_timeout = default_timeout
         self._async = async
-        self.wip_queue = WIPQueue(name, default_timeout, self.connection)
+        if self.__class__ is Queue:
+            # No such features for inheriting queues types
+            self.wip_queue = WIPQueue(name, default_timeout, self.connection)
+            #self.wip_queue = WIPQueue.for_parent(self)
+            self.done_queue = DoneQueue.of_parent(self)
 
     @property
     def key(self):
@@ -396,7 +400,19 @@ class FailedQueue(Queue):
         q.enqueue_job(job)
 
 
-class WIPQueue(object):
+class ChildQueue(object):
+    """This is a mixin class for classes inheriting from :class:`Queue` that only provides
+    a factory classmethod that initialises main attributes from its parent object
+    (which is supposed to be a :class:`Queue` or subclass of it)
+    """
+    @classmethod
+    def of_parent(cls, parent):
+        """Factory method
+        """
+        return cls(parent.name, parent._default_timeout, parent.connection, parent._async)
+
+
+class WIPQueue(Queue, ChildQueue):
     """This queue will handle "work in process" jobs
 
     :param name: Name of the WIP queue (the same as the associated jobs queue)
@@ -406,26 +422,14 @@ class WIPQueue(object):
     :param connection: Redis connection to be used
     :type connection: :class:`redis.StrictRedis`
     """
-    redis_queue_namespace_prefix = 'rq:wipqueue:{0}'
-
-    def __init__(self, name, default_timeout, connection=None):
-        self.name = name
-        self.default_timeout = default_timeout or Queue.DEFAULT_TIMEOUT
-        self.connection = resolve_connection(connection)
-        return
-
-    @property
-    def key(self):
-        """Redis key for this queue (ZSET)
-        """
-        return self.redis_queue_namespace_prefix.format(self.name)
+    redis_queue_namespace_prefix = 'rq:wipqueue:'
 
     def add_job(self, job):
         """Adding a job in positional slot (latest timeout first)
         """
         timeout = job.timeout
         if timeout is None:
-            timeout = self.default_timeout
+            timeout = self._default_timeout or self.DEFAULT_TIMEOUT
         rank = time.time() + timeout
         self.connection.zadd(self.key, rank, job.id)
         return
@@ -448,3 +452,10 @@ class WIPQueue(object):
             self.connection.zrem(self.key, *to_remove)
         return
 
+
+class DoneQueue(Queue, ChildQueue):
+    """This queue will handle "successfully done jobs"
+    """
+    redis_queue_namespace_prefix = 'rq:donequeue:'
+
+    pass
