@@ -69,7 +69,7 @@ or... ::
 
   >>> rq.release_job(future_job)
 
-The effect of this is ::
+The effect of this is:
 
 - Change the state of all dependent jobs to QUEUED.
 
