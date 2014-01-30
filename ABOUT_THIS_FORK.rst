@@ -35,15 +35,17 @@ So far, so good, we can use the "depends_on" parameter for this. In example ::
   >>> bread_slices = queue.enqueue(cut_bread, kwargs={parts: 4})
   >>> queue.enqueue(add_marmalade, args=(strawberry,), depends_on=bread_slices)
 
+In that case the ``cut_bread`` job can have been already executed when the 
+``add_marmalade`` job is enqueued.
+
 But we have sometimes situations where we need to enqueue a task with known
 parameters which depends on future tasks that cannot be known (enumeration,
 name, parameters, ...) before this, or we can have a task that should not be 
-started before other tasks are created.
+started before other tasks are created, or we need to ensure execution order.
 
-That could be because we  need to be sure that all those tasks start together or never.
-
-That could also be because each task is the result of a process that update an underlying state
-(i.e. a database of sort) and all tasks should be executed only when the underlying state is coherent.
+- because we  need to be sure that all those tasks start together or never.
+- because each task is the result of a process that update an underlying state
+  (i.e. a database of sort) and all tasks should be executed only when the underlying state is coherent.
 
 In other words, and expressed as API ::
 
