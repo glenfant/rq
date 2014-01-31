@@ -12,7 +12,6 @@ from rq.contrib.legacy import cleanup_ghosts
 from rq.scripts import add_standard_arguments, read_config_file, setup_default_arguments, setup_redis
 from rq.utils import import_attribute
 
-HAVE_WINDOWS = sys.platform.startswith('win')
 
 logger = logging.getLogger(__name__)
 
