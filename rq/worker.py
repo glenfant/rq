@@ -14,6 +14,7 @@ import socket
 import signal
 import traceback
 import logging
+from .config import HAVE_WINDOWS
 from .queue import Queue, get_failed_queue
 from .connections import get_current_connection
 from .job import Job, Status
@@ -31,8 +32,6 @@ blue = make_colorizer('darkblue')
 DEFAULT_WORKER_TTL = 420
 DEFAULT_RESULT_TTL = 500
 logger = logging.getLogger(__name__)
-
-HAVE_WINDOWS = sys.platform.startswith('win')
 
 class StopRequested(Exception):
     pass
@@ -101,7 +100,8 @@ class Worker(object):
 
     def __init__(self, queues, name=None,
                  default_result_ttl=DEFAULT_RESULT_TTL, connection=None,
-                 exc_handler=None, default_worker_ttl=DEFAULT_WORKER_TTL):  # noqa
+                 exc_handler=None, default_worker_ttl=DEFAULT_WORKER_TTL,
+                 use_multiprocessing=False):  # noqa
         if connection is None:
             connection = get_current_connection()
         self.connection = connection
@@ -125,6 +125,10 @@ class Worker(object):
         self.push_exc_handler(self.move_to_failed_queue)
         if exc_handler is not None:
             self.push_exc_handler(exc_handler)
+
+        self.fork_and_perform_job = (self._fork_and_perform_job_mp
+                                     if use_multiprocessing or HAVE_WINDOWS else
+                                     self._fork_and_perform_job_fork)
 
 
     def validate_queues(self):  # noqa
@@ -349,7 +353,9 @@ class Worker(object):
             self.log.debug('Sending heartbeat to prevent worker timeout.')
             self.connection.expire(self.key, self.default_worker_ttl)
 
-    def fork_and_perform_job(self, job):
+    # 2 implementations for fork_and_perform_job. See __init__
+
+    def _fork_and_perform_job_mp(self, job):
         """Spawns a work horse to perform the actual work and passes it a job.
         The worker will wait for the work horse and make sure it executes
         within the given timeout bounds, or will end the work horse with
@@ -360,7 +366,7 @@ class Worker(object):
         horse.join()
 
 
-    def _fork_and_perform_job(self, job):
+    def _fork_and_perform_job_fork(self, job):
         """Spawns a work horse to perform the actual work and passes it a job.
         The worker will wait for the work horse and make sure it executes
         within the given timeout bounds, or will end the work horse with
@@ -431,12 +437,8 @@ class Worker(object):
             job.origin, time.time()))
 
         try:
-            if HAVE_WINDOWS:
-                # death_penalty_after uses SIGALRM that is not available unde Windows
+            with death_penalty_after(job.timeout or Queue.DEFAULT_TIMEOUT):
                 rv = job.perform()
-            else:
-                with death_penalty_after(job.timeout or Queue.DEFAULT_TIMEOUT):
-                    rv = job.perform()
 
             # Pickle the result in the same try-except block since we need to
             # use the same exc handling when pickling fails
