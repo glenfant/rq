@@ -78,10 +78,13 @@ Technically speaking, each job enqueued with the ``blocked_by`` argument is
 appended to a Redis list ::
 
   key : "rq:deferred:<id of future_job>"
-  value : [id of job some_callable_1, id of job some_callable_2]
+  value : ["target_queue_for_job1/id of job some_callable_1", "target_queue_for_job2/id of job some_callable_2"]
 
 The workers will ignore such jobs since those jobs are not even really enqueued,
 i.e. their job_id are not in the redis list that represent a given queue.
+
+The structure "target_queue_for_job1/id of job some_callable_1" allow the re-insertion of a job in its queue without
+unpicking it.
 
 When all dependent jobs are pushed, we are ready to execute them all ::
 
