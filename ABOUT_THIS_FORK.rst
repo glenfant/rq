@@ -1,3 +1,9 @@
+===============
+About this fork
+===============
+
+This fork is hosted at https://github.com/glenfant/rq/tree/wip-queue
+
 Windows support
 ===============
 
