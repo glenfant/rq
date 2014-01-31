@@ -457,5 +457,3 @@ class DoneQueue(Queue, ChildQueue):
     """This queue will handle "successfully done jobs"
     """
     redis_queue_namespace_prefix = 'rq:donequeue:'
-
-    pass
