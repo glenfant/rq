@@ -61,9 +61,8 @@ class Queue(object):
         self._async = async
         if self.__class__ is Queue:
             # No such features for inheriting queues types
-            self.wip_queue = WIPQueue(name, default_timeout, self.connection)
-            #self.wip_queue = WIPQueue.for_parent(self)
             self.done_queue = DoneQueue.of_parent(self)
+            self.wip_queue = WIPQueue.of_parent(self)
 
     @property
     def key(self):
@@ -130,7 +129,7 @@ class Queue(object):
         """Removes all "dead" jobs from the queue by cycling through it, while
         guarantueeing FIFO semantics.
         """
-        COMPACT_QUEUE = 'rq:queue:_compact:{0}'.format(uuid.uuid4())
+        COMPACT_QUEUE = '{0}_compact:{1}'.format(self.redis_queue_namespace_prefix, uuid.uuid4())
 
         self.connection.rename(self.key, COMPACT_QUEUE)
         while True:
@@ -409,7 +408,10 @@ class ChildQueue(object):
     def of_parent(cls, parent):
         """Factory method
         """
-        return cls(parent.name, parent._default_timeout, parent.connection, parent._async)
+        #queue = cls.from_queue_key(parent.name, connection=parent.connection)
+        queue = cls(parent.name, parent._default_timeout, parent.connection, parent._async)
+        queue.parent = parent
+        return queue
 
 
 class WIPQueue(Queue, ChildQueue):
@@ -457,3 +459,24 @@ class DoneQueue(Queue, ChildQueue):
     """This queue will handle "successfully done jobs"
     """
     redis_queue_namespace_prefix = 'rq:donequeue:'
+    redis_queues_keys = 'rq:donequeues'
+
+    def add_job(self, job):
+        """Adding a job in positional slot (latest timeout first)
+        """
+        timeout = job.timeout
+        if timeout is None:
+            timeout = self._default_timeout or self.DEFAULT_TIMEOUT
+        rank = time.time() + timeout
+        self.connection.zadd(self.key, rank, job.id)
+        return
+
+    def requeue_job(self, job_id):
+        """Puts back in the parent queue the job id
+
+        Issue: take care of job dependency. Means that requeuing a job requires its dependent jobs are
+        in the same Done queue too.
+        In that case, we must requeue the jobs in the dependency reverse order.
+        """
+        pass
+
