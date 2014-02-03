@@ -117,12 +117,13 @@ The effect of this is:
   -> The workers may execute these jobs when possible, taking depedencies into account.
 
 - Change the state of ``future_job`` to ``QUEUED`` when last of these jobs is
-  executed and enqueue it. Executing "de facto" the job after the former ``blocked_by`` jobs
-  thanks to the regular ``depends_on`` mechanism.
+  executed and enqueue it. Executing "de facto" the job after the former
+  ``blocked_by`` jobs thanks to the regular ``depends_on`` mechanism.
 
 If a ``future_job`` is cancelled or removed from RQ before having been
 released, all dependend jobs (the one registered in the ``rq:deferred:<id of
 future_job>`` data structure) are cancelled or removed too.
 
-If ``future_job`` has been released the former depending jobs becomes "independent" in their
-lifecycle and are thus not affected by status changes or deletion of the ``future_job``
+If ``future_job`` has been released the former depending jobs becomes
+"independent" in their lifecycle and are thus not affected by status changes
+or deletion of the ``future_job``
