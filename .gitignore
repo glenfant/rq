@@ -2,8 +2,10 @@
 *.egg-info
 
 /dump.rdb
-/.env
+/.direnv
+/.envrc
 /.tox
 /dist
 .idea/
 .DS_Store
+/build
