@@ -1,35 +1,74 @@
-===============
-About this fork
-===============
+=========================================
+About this ``rq`` fork (wip-queue branch)
+=========================================
 
 This fork is hosted at https://github.com/glenfant/rq/tree/wip-queue
 
 Windows support
 ===============
 
-RQ may work under windows.
+RQ may work under Windows. More testing is however required.
 
 Multiprocessing in place of Unix fork
 =====================================
 
-Jobs are always executed in a distinct process. In original rq, jobs are
-executed using Unix fork() that's not available under Windows. From this
-version, when executed under Windows, rq workers use automatically
-multiprocessing when executing jobs in a distinct process. When under Unix,
-workers execute as before the jobs in a forked process.
+Jobs are always executed in a distinct process. In original ``rq``, jobs are
+executed using Unix ``fork()`` that's not available under Windows. From this
+version, when executed under Windows, ``rq`` workers use automatically
+multiprocessing when executing jobs in ``rq`` a distinct process. When under
+Unix, workers execute as before the jobs in a forked process.
 
-But the "-- multiprocessing" option of "rqworker" command enables workers to
-execute jobs with multiprocessing.
+But the ``--multiprocessing`` option of ``rqworker`` command enables workers
+to execute jobs with multiprocessing.
 
-In process queue
-================
+In process queue (WIP queue)
+============================
 
 Added the WIP queue that records actually executed jobs.
 
-rq enhancement. Support for deferred job executions
-===================================================
+Before processing a job it is recorded in a wo called "WIP queue" (WIP = Work
+In Process). This is a very transcient Redis persisted record.
 
-rq has already a support for dependent jobs. At a given time, you have two
+It's main - future - use case is the ability to re-execute jobs that did not
+complete before a server crash.
+
+Python API notes
+----------------
+
+Each jobs queue has its respective queue. As Python objects :
+
+- The ``wip_queue`` attribute of a (pending jobs) queue refers to its WIP
+  queue.
+
+- The ``parent`` attribute of  WIP queue is its pending jobs queue.
+
+Redis back-end
+--------------
+
+A WIP queue is a `sorted set <http://redis.io/topics/data-types#sorted-sets>`_
+with:
+
+**Key**::
+
+  rq:wipqueue:<name>
+
+``<name>`` being the name of the parent pending jobs queue
+
+**Value**::
+
+  [job_id, job_id, ...]
+
+.. note:: About value order
+
+   Job ids are sorted in "first required result" order (now + timeout)
+
+``rq`` enhancement. Support for deferred job executions
+=======================================================
+
+What's on legacy ``rq``
+-----------------------
+
+``rq`` has already a support for dependent jobs. At a given time, you have two
 jobs J1 and J2 :
 
 - they need to be executed in a particular order (J1, then J2)
@@ -44,6 +83,9 @@ So far, so good, we can use the "depends_on" parameter for this. In example ::
 
 In that case the ``cut_bread`` job can have been already executed when the
 ``add_marmalade`` job is enqueued.
+
+What's the deferred queue
+-------------------------
 
 But we have sometimes situations where we need to enqueue a task with known
 parameters which depends on future tasks that cannot be known (enumeration,
@@ -127,3 +169,22 @@ future_job>`` data structure) are cancelled or removed too.
 If ``future_job`` has been released the former depending jobs becomes
 "independent" in their lifecycle and are thus not affected by status changes
 or deletion of the ``future_job``
+
+Redis backend
+-------------
+
+A sorted set with:
+
+Key::
+
+  rq:deferred
+
+Value::
+
+  {<queue name> | <job id>, <queue name> | <job id>, ...}
+
+References
+==========
+
+Legacy ``rq`` documentation
+  http://python-rq.org/
