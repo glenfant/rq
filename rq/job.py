@@ -10,6 +10,7 @@ from .exceptions import UnpickleError, NoSuchJobError
 from .utils import import_attribute, utcnow, utcformat, utcparse
 from rq.compat import text_type, decode_redis_hash, as_text
 
+Queue = None  # Avoiding recursive imports
 
 def enum(name, *sequential, **named):
     values = dict(zip(sequential, range(len(sequential))), **named)
@@ -17,7 +18,7 @@ def enum(name, *sequential, **named):
 
 Status = enum('Status',
               QUEUED='queued', FINISHED='finished', FAILED='failed',
-              STARTED='started')
+              STARTED='started', DEFERRED='deferred')
 
 # Sentinel value to mark that some of our lazily evaluated properties have not
 # yet been evaluated.
@@ -64,6 +65,14 @@ def get_current_job(connection=None):
     if job_id is None:
         return None
     return Job.fetch(job_id, connection=connection)
+
+
+def release_job(job_or_id, connection=None):
+    if isinstance(job_or_id, (str, unicode)):
+        job = Job.fetch(job_or_id, connection=connection)
+    else:
+        job = job_or_id
+    job.release()
 
 
 class Job(object):
@@ -137,6 +146,10 @@ class Job(object):
     @property
     def is_started(self):
         return self.status == Status.STARTED
+
+    @property
+    def is_deferred(self):
+        return self.status == Status.DEFERRED
 
     @property
     def dependency(self):
@@ -485,6 +498,45 @@ class Job(object):
         """
         # TODO: This can probably be pipelined
         self.connection.sadd(Job.dependents_key_for(self._dependency_id), self.id)
+
+    def release(self, pipeline=None):
+        """Put the job in QUEUED state and enqueues it (really) as well as its dependent jobs
+        """
+        global Queue
+
+        # Seems ugly but this avoids recursive imports
+        if Queue is None:
+            from rq.queue import Queue
+
+        connection = pipeline if pipeline is not None else self.connection
+        # Validating the "blocked" status
+        if not self.is_deferred:
+            # FIXME: We should log something
+            return
+
+        # Checking this job has really been deferred
+        result = connection.srem('rq:deferred', self.origin + '|' + self.id)
+        if result == 0:
+            raise NoSuchJobError('No such blocked job: %s' % (self.id))
+
+        self.status = Status.QUEUED
+        self.save()
+        queue = Queue(name=self.origin, connection=connection)
+        queue.enqueue_job(self)
+
+        # Finding and activating dependents of self
+        depend_count = connection.scard(self.dependents_key)
+        if depend_count > 0:
+            for a_job_id in connection.smembers(self.dependents_key):
+                a_job = Job.fetch(a_job_id, connection=connection)
+                a_job.status = Status.QUEUED
+                self.save()
+                queue.enqueue_job(a_job)
+        return
+
+
+
+
 
     def __str__(self):
         return '<Job %s: %s>' % (self.id, self.description)

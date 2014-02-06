@@ -1,4 +1,6 @@
 from rq import Queue, Worker, Connection
+if '' not in sys.path:
+    sys.path.insert(0, '')
 
 
 if __name__ == '__main__':

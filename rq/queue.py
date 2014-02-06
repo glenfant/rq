@@ -141,7 +141,8 @@ class Queue(object):
 
 
     def enqueue_call(self, func, args=None, kwargs=None, timeout=None,
-                     result_ttl=None, description=None, depends_on=None):
+                     result_ttl=None, description=None, depends_on=None,
+                     deferred=False, blocked_by=None):
         """Creates a job to represent the delayed function call and enqueues
         it.
 
@@ -152,8 +153,13 @@ class Queue(object):
         timeout = timeout or self._default_timeout
 
         # TODO: job with dependency shouldn't have "queued" as status
+        init_status = Status.DEFERRED if (deferred or blocked_by) else Status.QUEUED
+
+        # blocked_by some job implies depends_on some job
+        if blocked_by:
+            depends_on = blocked_by
         job = Job.create(func, args, kwargs, connection=self.connection,
-                         result_ttl=result_ttl, status=Status.QUEUED,
+                         result_ttl=result_ttl, status=init_status,
                          description=description, depends_on=depends_on, timeout=timeout)
 
         # If job depends on an unfinished job, register itself on it's
@@ -173,7 +179,10 @@ class Queue(object):
                     except WatchError:
                         continue
 
-        return self.enqueue_job(job)
+        if init_status == Status.DEFERRED:
+            return self.defer_job(job)
+        else:
+            return self.enqueue_job(job)
 
     def enqueue(self, f, *args, **kwargs):
         """Creates a job to represent the delayed function call and enqueues
@@ -199,18 +208,42 @@ class Queue(object):
         description = None
         result_ttl = None
         depends_on = None
-        if 'args' in kwargs or 'kwargs' in kwargs or 'depends_on' in kwargs:
+        deferred = False
+        blocked_by = False
+        if any((token in kwargs for token in ('args', 'kwargs', 'depends_on', 'deferred', 'blocked_by'))):
             assert args == (), 'Extra positional arguments cannot be used when using explicit args and kwargs.'  # noqa
             timeout = kwargs.pop('timeout', None)
             description = kwargs.pop('description', None)
             args = kwargs.pop('args', None)
             result_ttl = kwargs.pop('result_ttl', None)
             depends_on = kwargs.pop('depends_on', None)
+            deferred = kwargs.pop('deferred', False)
+            blocked_by = kwargs.pop('blocked_by', None)
             kwargs = kwargs.pop('kwargs', None)
 
         return self.enqueue_call(func=f, args=args, kwargs=kwargs,
                                  timeout=timeout, result_ttl=result_ttl,
-                                 description=description, depends_on=depends_on)
+                                 description=description, depends_on=depends_on,
+                                 deferred=deferred, blocked_by=blocked_by)
+
+    def defer_job(self, job, set_meta_data=True):
+        """Enqueues a job for a deferred execution (conditioned by a future release)
+
+        If the `set_meta_data` argument is `True` (default), it will update
+        the properties `origin` and `enqueued_at`.
+        """
+        value = self.name + '|' + job.id
+        self.connection.sadd('rq:deferred', value)
+
+        if set_meta_data:
+            job.origin = self.name
+            job.enqueued_at = utcnow()
+
+        if job.timeout is None:
+            job.timeout = self.DEFAULT_TIMEOUT
+        job.save()
+        return job
+
 
     def enqueue_job(self, job, set_meta_data=True):
         """Enqueues a job for delayed execution.
@@ -287,6 +320,7 @@ class Queue(object):
 
         Returns a Job instance, which can be executed or inspected.
         """
+        # ISSUE: This method does not seem to be used anywhere except in tests
         job_id = self.pop_job_id()
         if job_id is None:
             return None
