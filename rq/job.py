@@ -67,14 +67,6 @@ def get_current_job(connection=None):
     return Job.fetch(job_id, connection=connection)
 
 
-def release_job(job_or_id, connection=None):
-    if isinstance(job_or_id, (str, unicode)):
-        job = Job.fetch(job_or_id, connection=connection)
-    else:
-        job = job_or_id
-    job.release()
-
-
 class Job(object):
     """A Job is just a convenient datastructure to pass around job (meta) data.
     """
@@ -498,45 +490,6 @@ class Job(object):
         """
         # TODO: This can probably be pipelined
         self.connection.sadd(Job.dependents_key_for(self._dependency_id), self.id)
-
-    def release(self, pipeline=None):
-        """Put the job in QUEUED state and enqueues it (really) as well as its dependent jobs
-        """
-        global Queue
-
-        # Seems ugly but this avoids recursive imports
-        if Queue is None:
-            from rq.queue import Queue
-
-        connection = pipeline if pipeline is not None else self.connection
-        # Validating the "blocked" status
-        if not self.is_deferred:
-            # FIXME: We should log something
-            return
-
-        # Checking this job has really been deferred
-        result = connection.srem('rq:deferred', self.origin + '|' + self.id)
-        if result == 0:
-            raise NoSuchJobError('No such blocked job: %s' % (self.id))
-
-        self.status = Status.QUEUED
-        self.save()
-        queue = Queue(name=self.origin, connection=connection)
-        queue.enqueue_job(self)
-
-        # Finding and activating dependents of self
-        depend_count = connection.scard(self.dependents_key)
-        if depend_count > 0:
-            for a_job_id in connection.smembers(self.dependents_key):
-                a_job = Job.fetch(a_job_id, connection=connection)
-                a_job.status = Status.QUEUED
-                self.save()
-                queue.enqueue_job(a_job)
-        return
-
-
-
-
 
     def __str__(self):
         return '<Job %s: %s>' % (self.id, self.description)

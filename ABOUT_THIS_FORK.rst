@@ -141,15 +141,28 @@ insertion of a job in its queue without unpicking it.
 
 When all dependent jobs are pushed, we are ready to execute them all ::
 
-  >>> future_job.release()
+  >>> from rq import release_job
+  >>> release_job(future_job)
 
 or... ::
 
-  >>> rq.release_job(future_job)
+  >>> release_job(future_job.id)
 
 or... ::
 
-  >>> rq.release_job(future_job_id)
+  >>> release_job(future_job.id, queue)
+
+or... ::
+
+  >>> release_job(future_job.id, queue.name)
+
+...
+
+Signature of ``rq.release_job``
+
+  def release_job(job_or_id, queue_or_name=None, connection=None):
+
+Preferably provide the queue object or name to have a faster effect...
 
 The effect of this is:
 

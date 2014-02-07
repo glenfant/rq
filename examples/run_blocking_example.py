@@ -1,6 +1,6 @@
 import os
 import time
-from rq import Queue, Connection
+from rq import Queue, Connection, release_job
 import sys
 if '' not in sys.path:
     sys.path.insert(0, '')
@@ -22,11 +22,15 @@ def main():
         else:
             async_results[x] = q.enqueue(slow_fib, args=(x,), blocked_by=result)
 
-    raw_input("All jobs enqueued and blocked by {}\n Hit return to release:".format(result.id))
+    raw_input("All jobs enqueued and blocked by {}\nHit return to release this job then dependants:".format(result.id))
     start_time = time.time()
-    result.release()
-    # rq.release_job(result)
-    # rq.release_job(result.id)
+    release_job(result, queue_or_name=q)
+
+    # Otherwise you may choose any of these
+    #release_job(result, queue_or_name='default')
+    #release_job(result.id)
+    #release_job(result.id)
+
     done = False
     while not done:
         os.system('clear')

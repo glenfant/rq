@@ -11,6 +11,57 @@ from .compat import total_ordering, string_types, as_text
 
 from redis import WatchError
 
+def release_job(job_or_id, queue_or_name=None, connection=None):
+    """Same as above "release_job_from_queue" but slower since we need to find the related queue
+    """
+    connection = resolve_connection(connection)
+    if not isinstance(job_or_id, Job):
+        assert isinstance(job_or_id, (str, unicode))
+        # OK, we got a job id
+        if Job.exists(job_or_id, connection=connection):
+            job = Job.fetch(job_or_id, connection=connection)
+        else:
+            raise NoSuchJobError("There is no job with id '{0}'".format(job_or_id))
+    else:
+        job = job_or_id
+
+    if not job.is_deferred:
+        raise InvalidJobOperationError("Job id '{0}' status is {1} and not 'deferred'".format(job_or_id, job.status))
+
+    # Get associated queue
+    if queue_or_name is None:
+        queue = Queue(name=job.origin, connection=connection)
+    elif isinstance(queue_or_name, Queue):
+        queue = queue_or_name
+    else:  # A string (?)
+        assert isinstance(queue_or_name, (str, unicode))
+        queue = Queue(name=queue_or_name, connection=connection)
+
+    result = connection.srem('rq:deferred', queue.name + '|' + job.id)
+    if result == 0:
+        raise NoSuchJobError('No such blocked job: %s' % (job.id))
+
+    job.status = Status.QUEUED
+    job.save()
+    queue.enqueue_job(job)
+
+    if True:
+        return
+
+    # Finding and activating dependents of this job
+    depend_count = connection.scard(job.dependents_key)
+    if depend_count > 0:
+        for a_job_id in connection.smembers(job.dependents_key):
+            a_job = Job.fetch(a_job_id, connection=connection)
+            a_job.status = Status.QUEUED
+            job.save()
+            if a_job.origin != queue.name:  # Slight optim...
+                a_queue = Queue(name=a_job.origin, connection=connection)
+            else:
+                a_queue = queue
+            a_queue.enqueue_job(a_job)
+    return
+
 
 def get_failed_queue(connection=None):
     """Returns a handle to the special failed queue."""
@@ -51,7 +102,7 @@ class Queue(object):
         return cls(name, connection=connection)
 
     def __init__(self, name='default', default_timeout=None, connection=None,
-                 async=True, keep_done=False):
+                 async=True):
         self.connection = resolve_connection(connection)
         prefix = self.redis_queue_namespace_prefix
         self.name = name
