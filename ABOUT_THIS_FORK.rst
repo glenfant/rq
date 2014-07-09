@@ -105,7 +105,7 @@ This create a new job with the DEFERRED status (and **not** the QUEUED
 status as usual). The workers will ignore such jobs at the moment, because
 they are not put in their designated underlying queue yet.
 
-We shall now add new jobs which **must** be executed before this
+We shall now add new jobs which **must** be executed *after* this
 ``future_job`` ::
 
   >>> queue.enqueue(some_callable_1, ..., blocked_by=future_job)
