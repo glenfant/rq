@@ -1,3 +1,4 @@
+# coding=utf-8
 import time
 import uuid
 
@@ -11,8 +12,9 @@ from .compat import total_ordering, string_types, as_text
 
 from redis import WatchError
 
+
 def release_job(job_or_id, queue_or_name=None, connection=None):
-    """Same as above "release_job_from_queue" but slower since we need to find the related queue
+    """ Release a job that was previously created as "deferred", either in its original queue or in the queue passed in the queue_or_name parameter.
     """
     connection = resolve_connection(connection)
     if not isinstance(job_or_id, Job):
@@ -36,10 +38,9 @@ def release_job(job_or_id, queue_or_name=None, connection=None):
     else:  # A string (?)
         assert isinstance(queue_or_name, (str, unicode))
         queue = Queue(name=queue_or_name, connection=connection)
-
-    result = connection.srem('rq:deferred', queue.name + '|' + job.id)
+    result = connection.srem('rq:deferred', job.id)
     if result == 0:
-        raise NoSuchJobError('No such blocked job: %s' % (job.id))
+        raise NoSuchJobError('No such blocked job: %s' % job.id)
 
     job.status = Status.QUEUED
     job.save()
@@ -166,6 +167,13 @@ class Queue(object):
         """Returns a count of all messages in the queue."""
         return self.connection.llen(self.key)
 
+    def release_job_here(self, job_or_id):
+        """Release a job that was deferred into *this* queue (i.e. change the job initialy declared queue is needed)
+           If you don't want to affect the job originally chosen queue use the module function release_job
+           :param job_or_id: the job instance or the job_id of the job to be release from its deferred state i.e. put back into this queue.
+           """
+        release_job(job_or_id=job_or_id, queue_or_name=self)
+
     def remove(self, job_or_id):
         """Removes Job from queue, accepts either a Job instance or ID."""
         job_id = job_or_id.id if isinstance(job_or_id, Job) else job_or_id
@@ -283,7 +291,7 @@ class Queue(object):
         If the `set_meta_data` argument is `True` (default), it will update
         the properties `origin` and `enqueued_at`.
         """
-        value = self.name + '|' + job.id
+        value = job.id
         self.connection.sadd('rq:deferred', value)
 
         if set_meta_data:
@@ -294,7 +302,6 @@ class Queue(object):
             job.timeout = self.DEFAULT_TIMEOUT
         job.save()
         return job
-
 
     def enqueue_job(self, job, set_meta_data=True):
         """Enqueues a job for delayed execution.
